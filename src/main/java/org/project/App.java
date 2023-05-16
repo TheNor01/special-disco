@@ -300,44 +300,48 @@ public class App
 
         //Remove percentage FROM TRAINING ALL
 
-        DataSource source = new DataSource("src/main/java/org/resources/irisSingleCl/inputDS/agg_positive0.arff");
-        Instances training = source.getDataSet();
-        if (training.classIndex() == -1) {
-            training.setClassIndex(training.numAttributes() - 1);
-        }
-
-
-        RemovePercentage rp = new RemovePercentage();
-        rp.setInputFormat(training);
-        rp.setInvertSelection(true);
-        rp.setPercentage(30);
-
-        Instances testing = Filter.useFilter(training, rp);
-
-        File arfFIletesting = new File("/Users/thenor/Desktop/Aldo/Neodata/SaverioProjects/BinaryClassification/src/main/java/org/resources/irisSingleCl/testing.arff");
-        if(arfFIletesting.exists()) arfFIletesting.delete();
-        ArffSaver rawtrainingSavertesting = new ArffSaver();
-        rawtrainingSavertesting.setInstances(testing);
-        rawtrainingSavertesting.setFile(arfFIletesting);
-        rawtrainingSavertesting.writeBatch();
+        //INIT ALL
 
 
         //Classifier section
-
         String[] options = new String[1];
         options[0] = "-U";            // unpruned tree
         J48 tree = new J48();         // new instance of tree
         tree.setOptions(options);     // set the options
 
+        RemovePercentage rp = new RemovePercentage();
+        rp.setInvertSelection(true);
+        rp.setPercentage(30);
+
+        int folds = 5;
+
+
+        for(int i=0;i<sources.size();i++){
+
+        DataSource source = new DataSource("src/main/java/org/resources/irisSingleCl/inputDS/agg_positive"+i+".arff");
+        Instances training = source.getDataSet();
+        if (training.classIndex() == -1) training.setClassIndex(training.numAttributes() - 1);
+
+
+       
+        rp.setInputFormat(training);
+        //Instances testing = Filter.useFilter(training, rp);
+
+
+        // File arfFIletesting = new File("/Users/thenor/Desktop/Aldo/Neodata/SaverioProjects/BinaryClassification/src/main/java/org/resources/irisSingleCl/testing"+i+".arff");
+        // if(arfFIletesting.exists()) arfFIletesting.delete();
+        // ArffSaver rawtrainingSavertesting = new ArffSaver();
+        // rawtrainingSavertesting.setInstances(testing);
+        // rawtrainingSavertesting.setFile(arfFIletesting);
+        // rawtrainingSavertesting.writeBatch();
+
+
         //tree.buildClassifier(training);   // build classifier
 
         //The crossValidateModel takes care of training and evaluating the classifier. (It creates a copy of the original classifier that you hand over to the crossValidateModel for each run of the cross-validation.)
-
         //j48 cannot handle numeric class??!
-
-        int folds = 5;
         Evaluation eval = new Evaluation(training);
-        eval.crossValidateModel(tree, testing, folds, new Random(1));
+        eval.crossValidateModel(tree, training, folds, new Random(1));
 
         //TPR, la precisione e la recall.
         //cross validation
@@ -345,6 +349,9 @@ public class App
         System.out.println("F-measure : "+eval.weightedFMeasure());
         System.out.println("precision : "+eval.weightedPrecision());
         System.out.println("recall : "+eval.weightedRecall());
+    }
+
+        System.exit(-1);
 
 
 
@@ -385,10 +392,10 @@ public class App
 
 
         rp.setInputFormat(nominalALL);
-        Instances testingAll = Filter.useFilter(nominalALL, rp);
+        //Instances testingAll = Filter.useFilter(nominalALL, rp);
 
         Evaluation evalAll = new Evaluation(nominalALL);
-        evalAll.crossValidateModel(tree, testingAll, folds, new Random(1));
+        evalAll.crossValidateModel(tree, nominalALL, folds, new Random(1));
 
         System.out.println(evalAll.toSummaryString("\nResults\n======\n", true));
         System.out.println("F-measure : "+evalAll.weightedFMeasure());
@@ -396,6 +403,7 @@ public class App
         System.out.println("recall : "+evalAll.weightedRecall());
 
 
+        /* 
         //SMOTE positive vs negative, rebalance
         SMOTE smote=new SMOTE();
         smote.setInputFormat(training);
@@ -428,6 +436,8 @@ public class App
         ranker.setThreshold(0.0);
         selector.setEvaluator(evaluator);
         selector.setSearch(ranker);
+
+        */
 
 
 
