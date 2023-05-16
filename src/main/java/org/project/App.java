@@ -324,7 +324,7 @@ public class App
 
 
        
-        rp.setInputFormat(training);
+        //rp.setInputFormat(training);
         //Instances testing = Filter.useFilter(training, rp);
 
 
@@ -345,14 +345,17 @@ public class App
 
         //TPR, la precisione e la recall.
         //cross validation
+
+
+        System.out.println("CLASSIFIER eval:"+i);
+
         System.out.println(eval.toSummaryString("\nResults\n======\n", true));
         System.out.println("F-measure : "+eval.weightedFMeasure());
         System.out.println("precision : "+eval.weightedPrecision());
         System.out.println("recall : "+eval.weightedRecall());
     }
 
-        System.exit(-1);
-
+        //System.exit(-1);
 
 
         //multiclass j48
@@ -377,7 +380,6 @@ public class App
         numericToNominal.setOptions(optionsNumeric);
         numericToNominal.setInputFormat(sourceIs);
 
-
         Instances nominalALL = Filter.useFilter(sourceIs, numericToNominal);
         if (nominalALL.classIndex() == -1) nominalALL.setClassIndex(nominalALL.numAttributes() - 1);
 
@@ -391,11 +393,13 @@ public class App
         rawtrainingSaverAll.writeBatch();
 
 
-        rp.setInputFormat(nominalALL);
+        //rp.setInputFormat(nominalALL);
         //Instances testingAll = Filter.useFilter(nominalALL, rp);
 
         Evaluation evalAll = new Evaluation(nominalALL);
         evalAll.crossValidateModel(tree, nominalALL, folds, new Random(1));
+
+        System.out.println("ALL CLASSIFIER");
 
         System.out.println(evalAll.toSummaryString("\nResults\n======\n", true));
         System.out.println("F-measure : "+evalAll.weightedFMeasure());
@@ -403,27 +407,36 @@ public class App
         System.out.println("recall : "+evalAll.weightedRecall());
 
 
-        /* 
+        
         //SMOTE positive vs negative, rebalance
         SMOTE smote=new SMOTE();
-        smote.setInputFormat(training);
-        Instances Trains_smote= Filter.useFilter(training, smote);
+        for(int i=0;i<sources.size();i++){
 
-        File arfFile_smote = new File("/Users/thenor/Desktop/Aldo/Neodata/SaverioProjects/BinaryClassification/src/main/java/org/resources/irisSingleCl/training_smote_1.arff");
-        if(arfFile_smote.exists()) arfFile_smote.delete();
-        ArffSaver training_smote = new ArffSaver();
-        training_smote.setInstances(Trains_smote);
-        training_smote.setFile(arfFile_smote);
-        training_smote.writeBatch();
+            DataSource source = new DataSource("src/main/java/org/resources/irisSingleCl/inputDS/agg_positive"+i+".arff");
+            Instances training = source.getDataSet();
+            if (training.classIndex() == -1) training.setClassIndex(training.numAttributes() - 1);
 
-        Evaluation evalAllSmote = new Evaluation(Trains_smote);
-        evalAllSmote.crossValidateModel(tree, testingAll, folds, new Random(1));
+            smote.setInputFormat(training);
+            Instances Trains_smote= Filter.useFilter(training, smote);
 
-        System.out.println(evalAllSmote.toSummaryString("\nResults\n======\n", true));
-        System.out.println("F-measure : "+evalAllSmote.weightedFMeasure());
-        System.out.println("precision : "+evalAllSmote.weightedPrecision());
-        System.out.println("recall : "+evalAllSmote.weightedRecall());
-        System.out.println(evalAllSmote.toMatrixString());
+            Evaluation evalAllSmote = new Evaluation(Trains_smote);
+            evalAllSmote.crossValidateModel(tree, Trains_smote, folds, new Random(1));
+
+
+            System.out.println("CLASSIFIER eval SMOTE:"+i);
+            System.out.println(evalAllSmote.toSummaryString("\nResults\n======\n", true));
+            System.out.println("F-measure : "+evalAllSmote.weightedFMeasure());
+            System.out.println("precision : "+evalAllSmote.weightedPrecision());
+            System.out.println("recall : "+evalAllSmote.weightedRecall());
+            System.out.println(evalAllSmote.toMatrixString());
+
+        }    
+
+        
+    
+
+        
+        
 
         //https://waikato.github.io/weka-wiki/performing_attribute_selection/#meta-classifier
 
@@ -437,7 +450,6 @@ public class App
         selector.setEvaluator(evaluator);
         selector.setSearch(ranker);
 
-        */
 
 
 
