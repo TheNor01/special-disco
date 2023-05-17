@@ -1,18 +1,19 @@
 package org.project;
-import weka.attributeSelection.AttributeSelection;
+import weka.attributeSelection.BestFirst;
+import weka.attributeSelection.CfsSubsetEval;
 import weka.attributeSelection.Ranker;
 import weka.classifiers.Evaluation;
+import weka.classifiers.meta.AttributeSelectedClassifier;
 import weka.classifiers.trees.J48;
 import weka.core.Instance;
 import weka.core.Instances;
 import weka.core.converters.ArffSaver;
+import weka.core.converters.CSVLoader;
 import weka.core.converters.ConverterUtils.DataSource;
 import weka.filters.Filter;
 import weka.filters.unsupervised.attribute.Add;
 import weka.filters.unsupervised.attribute.NumericToNominal;
-import weka.filters.unsupervised.instance.RemovePercentage;
 import weka.filters.unsupervised.attribute.Remove;
-import weka.filters.unsupervised.attribute.StringToNominal;
 import weka.filters.supervised.instance.SMOTE;
 import weka.attributeSelection.InfoGainAttributeEval;
 
@@ -27,44 +28,168 @@ import java.util.Random;
  */
 public class App
 {
+ private static void MetaClassiffier(SMOTE smote,int sourcesSize,int folds, J48 tree) throws Exception{
+    for(int i=0;i<sourcesSize;i++){
+
+            DataSource tmp = new DataSource("src/main/java/org/resources/irisSingleCl/inputDS/agg_positive"+i+".arff");
+            Instances dataset = tmp.getDataSet();
+            if (dataset.classIndex() == -1) dataset.setClassIndex(dataset.numAttributes() - 1);
+
+            
+            //Meta classification
+
+            //https://waikato.github.io/weka-wiki/performing_attribute_selection/#meta-classifier
+
+            //attribute selecion (infogain+ ranker (valore infogain >0) e cfsSubsetEval+ best first) e il filtro SMOTE (inglobato)
+
+            //repeat 2) step using 
+
+            //apply smote
+
+            smote.setInputFormat(dataset);
+            Instances Trains_smote= Filter.useFilter(dataset, smote);
+
+
+            //1 meta
+            AttributeSelectedClassifier classifier1 = new AttributeSelectedClassifier();
+            InfoGainAttributeEval evaluator = new InfoGainAttributeEval();
+            Ranker ranker = new Ranker();
+            ranker.setThreshold(0.1);
+
+            classifier1.setClassifier(tree);
+            classifier1.setEvaluator(evaluator);
+            classifier1.setSearch(ranker);
+
+            //2 meta
+            AttributeSelectedClassifier classifier2 = new AttributeSelectedClassifier();
+            CfsSubsetEval eva = new CfsSubsetEval();
+            BestFirst bf = new BestFirst();
+            classifier2.setClassifier(tree);
+            classifier2.setEvaluator(eva);
+            classifier2.setSearch(bf);
+
+    
+            //identificare le features selezionate
+
+            System.out.println("FIRST META: infogain+ranker");
+
+            Evaluation evaluation = new Evaluation(Trains_smote);
+            evaluation.crossValidateModel(classifier1, Trains_smote, folds, new Random(1));
+            System.out.println(evaluation.toSummaryString());
+
+            classifier1.measureNumAttributesSelected();
+
+
+            
+            System.out.println("-----------");
+
+            System.out.println("SECOND META: CfsSubsetEval + BestFirst");
+            Evaluation evaluation2 = new Evaluation(Trains_smote);
+            evaluation2.crossValidateModel(classifier2, Trains_smote, folds, new Random(1));
+            System.out.println(evaluation2.toSummaryString());
+
+
+
+
+        }
+    }
+    private static void RebalanceWithSmote(SMOTE smote,int sourcesSize,int folds, J48 tree) throws Exception{
+        //SMOTE positive vs negative, rebalance
+        for(int i=0;i<sourcesSize;i++){
+            DataSource sourceSmote = new DataSource("src/main/java/org/resources/irisSingleCl/inputDS/agg_positive"+i+".arff");
+            Instances trainingSmote = sourceSmote.getDataSet();
+            if (trainingSmote.classIndex() == -1) trainingSmote.setClassIndex(trainingSmote.numAttributes() - 1);
+
+            smote.setInputFormat(trainingSmote);
+            Instances Trains_smote= Filter.useFilter(trainingSmote, smote);
+
+            Evaluation evalAllSmote = new Evaluation(Trains_smote);
+            evalAllSmote.crossValidateModel(tree, Trains_smote, folds, new Random(1));
+
+
+            System.out.println("CLASSIFIER eval SMOTE:"+i);
+            System.out.println(evalAllSmote.toSummaryString("\nResults\n======\n", true));
+            System.out.println("F-measure : "+evalAllSmote.weightedFMeasure());
+            System.out.println("precision : "+evalAllSmote.weightedPrecision());
+            System.out.println("recall : "+evalAllSmote.weightedRecall());
+            System.out.println(evalAllSmote.toMatrixString());
+
+        }    
+    }
+    private static void CreateClassifierFromAllCsvJoined(String allCsvJoined ,int folds,J48 tree) throws Exception{
+        CSVLoader loader = new CSVLoader();
+            loader.setNoHeaderRowPresent(true);
+            loader.setSource(new File(allCsvJoined));
+            Instances sourceIs=loader.getDataSet();
+
+            if (sourceIs.classIndex() == -1) sourceIs.setClassIndex(sourceIs.numAttributes() - 1);
+
+            NumericToNominal numericToNominal = new NumericToNominal();
+            String[] optionsNumeric = new String[2];
+            optionsNumeric[0] = "-R";
+            optionsNumeric[1] = "last";
+            numericToNominal.setOptions(optionsNumeric);
+            numericToNominal.setInputFormat(sourceIs);
+
+            Instances nominalALL = Filter.useFilter(sourceIs, numericToNominal);
+            if (nominalALL.classIndex() == -1) nominalALL.setClassIndex(nominalALL.numAttributes() - 1);
+
+
+            Evaluation evalAll = new Evaluation(nominalALL);
+            evalAll.crossValidateModel(tree, nominalALL, folds, new Random(1));
+
+            System.out.println("ALL CLASSIFIER");
+
+            System.out.println(evalAll.toSummaryString("\nResults\n======\n", true));
+            System.out.println("F-measure : "+evalAll.weightedFMeasure());
+            System.out.println("precision : "+evalAll.weightedPrecision());
+            System.out.println("recall : "+evalAll.weightedRecall());
+    }
+
+    private static void CreateModel(int sourcesSize,int folds,J48 tree) throws Exception{
+        
+
+        for(int i=0;i<sourcesSize;i++){
+            DataSource source = new DataSource("src/main/java/org/resources/irisSingleCl/inputDS/agg_positive"+i+".arff");
+            Instances training = source.getDataSet();
+            if (training.classIndex() == -1) training.setClassIndex(training.numAttributes() - 1);
+            //The crossValidateModel takes care of training and evaluating the classifier. (It creates a copy of the original classifier that you hand over to the crossValidateModel for each run of the cross-validation.)
+            //j48 cannot handle numeric class??!
+            Evaluation eval = new Evaluation(training);
+            eval.crossValidateModel(tree, training, folds, new Random(1));
+
+            //TPR, la precisione e la recall.
+            //cross validation
+            System.out.println("CLASSIFIER eval:"+i);
+            System.out.println(eval.toSummaryString("\nResults\n======\n", true));
+            System.out.println("F-measure : "+eval.weightedFMeasure());
+            System.out.println("precision : "+eval.weightedPrecision());
+            System.out.println("recall : "+eval.weightedRecall());
+        }
+    }
 
     private static void FormatDataset(ArrayList<String> sources) throws Exception{
 
-        ArrayList<DataSource> data = new ArrayList<>();
         ArrayList<Instances> inputInstances = new ArrayList<>();
         ArrayList<Instances> outputInstances = new ArrayList<>();
-
-        //create DataSources
+        
+        //create Instances from DataSources
         for(String s : sources){
-            data.add(new DataSource(s));
+            CSVLoader loader = new CSVLoader();
+            loader.setNoHeaderRowPresent(true);
+            loader.setSource(new File(s));
+            inputInstances.add(loader.getDataSet());
         }
-
-        //create Instances
-        for(DataSource ds : data){
-            inputInstances.add(ds.getDataSet());
-        }
-
-        //rename and SET class
-
-        for(Instances is : inputInstances){
-            is.renameAttribute(0,"attr1");
-            is.renameAttribute(1,"attr2");
-            is.renameAttribute(2,"attr3");
-            is.renameAttribute(3,"attr4");
-            is.renameAttribute(4,"class");
-            if (is.classIndex() == -1) is.setClassIndex(is.numAttributes() - 1);
-        }
-
 
         for(int i=0;i<inputInstances.size();i++){
 
-            int positive = i;
-            Instances positiveInstance = inputInstances.get(i);
+            int positiveIndex = i;
+            Instances positiveInstance = inputInstances.get(positiveIndex);
 
             ArrayList<Instances> allInstances  = inputInstances;
             //negativeInstance.remove(positive);
             
-            //remove 4th columns
+            //remove last columns
             int[] indicesToRemove = {positiveInstance.numAttributes()-1};
             Remove removeFilter = new Remove();
             removeFilter.setAttributeIndicesArray(indicesToRemove);
@@ -92,7 +217,7 @@ public class App
                 addedClassInstance.add(tmp);
             }
             
-            Instances positiveIs = addedClassInstance.remove(positive);
+            Instances positiveIs = addedClassInstance.remove(positiveIndex);
 
 
             //set negative to all classes
@@ -132,14 +257,6 @@ public class App
             
             System.out.println("TOTAL inside records: "+positiveIs.numInstances());
             System.out.println("Attribute number: "+positiveIs.numAttributes());
-            // File arfFIle = new File("src/main/java/org/resources/irisSingleCl/inputDS/agg_positive"+1+".csv");
-            // if(arfFIle.exists()) arfFIle.delete();
-            // ArffSaver rawtrainingSaver = new ArffSaver();
-            // rawtrainingSaver.setInstances(positiveIs);
-            // rawtrainingSaver.setFile(arfFIle);
-            // rawtrainingSaver.writeBatch();
-            
-            
         } //end cycle
 
 
@@ -151,8 +268,6 @@ public class App
             rawtrainingSaver.setFile(arfFIle);
             rawtrainingSaver.writeBatch();
         }
-
-
         return;
     }
 
@@ -164,294 +279,70 @@ public class App
         sources.add("src/main/java/org/resources/irisSingleCl/2.csv");
         sources.add("src/main/java/org/resources/irisSingleCl/3.csv");
 
-
+        /*
+        Punto 1
+            Scrivere un programma in Java prenda in ingresso un N file csv (contenuti in una cartella)
+            contenenti un dataset con una sola classe (esempio C1.csv, contiene solo istanze della classe
+            C1, ha tante righe quante le istanze e tante colonne quanti sono gli attributi che descrivono le
+            istanze + la colonna della classe ) e restituisca N dataset binari, contenuti in N file .arff (file1,
+            fil2, …fileN). Ciascun dataset binario, contenuto nel file i-esimo, deve avere come istanze della
+            classe positiva tutte le istanze della classe i-esima Ci (descritta e contenuta nell’i-esimo file
+            CSV). Le istanze della classe negativa devono essere tutte quelle delle classi restanti (contenute
+            e descritte nei file CSV restanti). Ad esempio, si supponga di avere tre file csv (c1.csv, c2.csv,
+            c3.csv). Il primo dataset binario avrà come istanze della classe positiva tutte quelle della classe
+            1 (in 1.csv) e come istanze della classe negativa quelle della classe 2 e 3 (in c2.csv e c3.csv). Il
+            secondo dataset binario avrà come istanze della classe positiva tutte quelle della classe 2 e
+            come istanze della classe negativa quelle della classe 1 e 3. Infine, il terzo dataset binario avrà
+            come istanze della classe positiva tutte quelle della classe 3 e come istanze della classe
+            negativa quelle della classe 3 e 2.
+        */
         FormatDataset(sources);
 
-
         /*
-        //DataSource source = new DataSource("/Users/thenor/Desktop/Aldo/Neodata/SaverioProjects/BinaryClassification/src/main/java/org/resources/irisSingleCl/1.csv");
-        DataSource source = new DataSource("/Users/thenor/Desktop/Aldo/Neodata/SaverioProjects/BinaryClassification/src/main/java/org/resources/irisSingleCl/inputDS/positive1.csv");
-        DataSource source2 = new DataSource("/Users/thenor/Desktop/Aldo/Neodata/SaverioProjects/BinaryClassification/src/main/java/org/resources/irisSingleCl/inputDS/positive2.csv");
-        Instances training = source.getDataSet();
-        Instances trainin2 = source2.getDataSet();
-
-        
-        for(Instance is: trainin2){
-            training.add(is);
-
-        }
-
-        // header to fix https://stackoverflow.com/questions/3517186/using-weka-java-code-how-convert-csv-without-header-row-to-arff-format
-
-        training.renameAttribute(0,"sepal length");
-        training.renameAttribute(1,"sepal width");
-        training.renameAttribute(2,"petal length");
-        training.renameAttribute(3,"petal width");
-        training.renameAttribute(4,"class");
-
-        if (training.classIndex() == -1) training.setClassIndex(training.numAttributes() - 1);
-
-        //save arff
-        File arfFIle = new File("/Users/thenor/Desktop/Aldo/Neodata/SaverioProjects/BinaryClassification/src/main/java/org/resources/irisSingleCl/training1.arff");
-        if(arfFIle.exists()) arfFIle.delete();
-        ArffSaver rawtrainingSaver = new ArffSaver();
-        rawtrainingSaver.setInstances(training);
-        rawtrainingSaver.setFile(arfFIle);
-        rawtrainingSaver.writeBatch();
-
-
-        //DataSource sourceNegative_1 = new DataSource("/Users/thenor/Desktop/Aldo/Neodata/SaverioProjects/BinaryClassification/src/main/java/org/resources/irisSingleCl/2.csv");
-        //DataSource sourceNegative_2 = new DataSource("/Users/thenor/Desktop/Aldo/Neodata/SaverioProjects/BinaryClassification/src/main/java/org/resources/irisSingleCl/3.csv");
-        //Instances trainingNegative_1 = sourceNegative_1.getDataSet();
-        //Instances trainingNegative_2 = sourceNegative_2.getDataSet();
-        // header to fix https://stackoverflow.com/questions/3517186/using-weka-java-code-how-convert-csv-without-header-row-to-arff-format
-
-        /*
-        trainingNegative_1.renameAttribute(0,"sepal length");
-        trainingNegative_2.renameAttribute(0,"sepal length");
-        trainingNegative_1.renameAttribute(1,"sepal width");
-        trainingNegative_2.renameAttribute(1,"sepal width");
-        trainingNegative_1.renameAttribute(2,"petal length");
-        trainingNegative_2.renameAttribute(2,"petal length");
-        trainingNegative_1.renameAttribute(3,"petal width");
-        trainingNegative_2.renameAttribute(3,"petal width");
-        trainingNegative_1.renameAttribute(4,"class");
-        trainingNegative_2.renameAttribute(4,"class");
-
-    
-        int[] indicesToRemove = {4};
-        Remove removeFilter = new Remove();
-        removeFilter.setAttributeIndicesArray(indicesToRemove);
-        removeFilter.setInvertSelection(false);
-        removeFilter.setInputFormat(trainingNegative_1);
-
-        Instances newNegative1 = Filter.useFilter(trainingNegative_1, removeFilter);
-
-        removeFilter.setInputFormat(trainingNegative_2);
-        Instances newNegative2 = Filter.useFilter(trainingNegative_2, removeFilter);
-
-        removeFilter.setInputFormat(training);
-        Instances newTraining = Filter.useFilter(training, removeFilter);
-
-        //add new attribute class "NOMINAL"
-        Add filterADD = new Add();
-        filterADD.setAttributeIndex("last");
-        filterADD.setAttributeName("class");
-        // filterADD.setNominalLabels("class");
-        filterADD.setInputFormat(newNegative1);
-        newNegative1 = Filter.useFilter(newNegative1, filterADD);
-
-        //training nominal j48
-        filterADD.setAttributeIndex("last");
-        filterADD.setNominalLabels("positive,negative");
-        filterADD.setAttributeName("class");
-        filterADD.setInputFormat(newTraining);
-        newTraining = Filter.useFilter(newTraining, filterADD);
-
-
-        filterADD.setAttributeIndex("last");
-        filterADD.setAttributeName("class");
-        filterADD.setInputFormat(newNegative2);
-        newNegative2 = Filter.useFilter(newNegative2, filterADD);
-
-        for (int i = 0; i < newNegative1.numInstances(); i++) {
-            // 2. numeric
-            newNegative1.instance(i).setValue(newNegative1.numAttributes() - 1, 1);
-            newNegative2.instance(i).setValue(newNegative2.numAttributes() - 1, 1);
-        }
-
-        Random rand = new Random(1);
-        for (int i = 0; i < newTraining.numInstances(); i++) {
-            // 2. nominal
-            newTraining.instance(i).setValue(newTraining.numAttributes() - 1, rand.nextInt(1));
-
-        }
-
-
-        if (newNegative1.classIndex() == -1) newNegative1.setClassIndex(newNegative1.numAttributes() - 1);
-        if (newNegative2.classIndex() == -1) newNegative2.setClassIndex(newNegative2.numAttributes() - 1);
-        if (newTraining.classIndex() == -1) newTraining.setClassIndex(newTraining.numAttributes() - 1);
-
-
-
-        File arfFIle1 = new File("/Users/thenor/Desktop/Aldo/Neodata/SaverioProjects/BinaryClassification/src/main/java/org/resources/irisSingleCl/trainingNegative1.arff");
-        if(arfFIle1.exists()) arfFIle1.delete();
-        ArffSaver rawtrainingSaver1 = new ArffSaver();
-        rawtrainingSaver1.setInstances(newNegative1);
-        rawtrainingSaver1.setFile(arfFIle1);
-        rawtrainingSaver1.writeBatch();
-
-
-        File arfFIle2 = new File("/Users/thenor/Desktop/Aldo/Neodata/SaverioProjects/BinaryClassification/src/main/java/org/resources/irisSingleCl/trainingNegative2.arff");
-        if(arfFIle2.exists()) arfFIle2.delete();
-        ArffSaver rawtrainingSaver2 = new ArffSaver();
-        rawtrainingSaver2.setInstances(newNegative2);
-        rawtrainingSaver2.setFile(arfFIle2);
-        rawtrainingSaver2.writeBatch();
-
-        //merge all
-
-        //Instances tmp1 = Instances.mergeInstances(newNegative1,newNegative2);
-        //Instances allTraining = Instances.mergeInstances(tmp1,training);
-
-
-
-         */
-
-        //Remove percentage FROM TRAINING ALL
-
-        //INIT ALL
-
-
-        //Classifier section
+        Punto 2
+            Costruire N modelli di classificazione utilizzando gli N dataset generati al punto 1. Valutare la
+            bontà di ciascuno dei modelli di classificazione in cross validation (5 fold) e riportare per
+            ciascun di essi il TPR, la precisione e la recall. Usare come classificatore il J48 
+        */
+       //Classifier section
         String[] options = new String[1];
         options[0] = "-U";            // unpruned tree
         J48 tree = new J48();         // new instance of tree
         tree.setOptions(options);     // set the options
-
-        RemovePercentage rp = new RemovePercentage();
-        rp.setInvertSelection(true);
-        rp.setPercentage(30);
-
         int folds = 5;
 
-
-        for(int i=0;i<sources.size();i++){
-
-        DataSource source = new DataSource("src/main/java/org/resources/irisSingleCl/inputDS/agg_positive"+i+".arff");
-        Instances training = source.getDataSet();
-        if (training.classIndex() == -1) training.setClassIndex(training.numAttributes() - 1);
+        CreateModel(sources.size(),folds,tree);
 
 
+        /*
+        Punto 3
+            Costruire un classificatore J48 utilizzando il dataset che si ottiene mettendo assieme tutte le
+            istanze presenti nei file csv forniti (si crea quindi un dataset multi classe con N classi).
+            Valutare le prestazioni, sempre in cross validation, estraendo per ciascuna classe il la
+            precisione e la recall. Confrontare i risultati ottenuti con quelli ottenuti nel punto 2).
+        */
        
-        //rp.setInputFormat(training);
-        //Instances testing = Filter.useFilter(training, rp);
-
-
-        // File arfFIletesting = new File("/Users/thenor/Desktop/Aldo/Neodata/SaverioProjects/BinaryClassification/src/main/java/org/resources/irisSingleCl/testing"+i+".arff");
-        // if(arfFIletesting.exists()) arfFIletesting.delete();
-        // ArffSaver rawtrainingSavertesting = new ArffSaver();
-        // rawtrainingSavertesting.setInstances(testing);
-        // rawtrainingSavertesting.setFile(arfFIletesting);
-        // rawtrainingSavertesting.writeBatch();
-
-
-        //tree.buildClassifier(training);   // build classifier
-
-        //The crossValidateModel takes care of training and evaluating the classifier. (It creates a copy of the original classifier that you hand over to the crossValidateModel for each run of the cross-validation.)
-        //j48 cannot handle numeric class??!
-        Evaluation eval = new Evaluation(training);
-        eval.crossValidateModel(tree, training, folds, new Random(1));
-
-        //TPR, la precisione e la recall.
-        //cross validation
-
-
-        System.out.println("CLASSIFIER eval:"+i);
-
-        System.out.println(eval.toSummaryString("\nResults\n======\n", true));
-        System.out.println("F-measure : "+eval.weightedFMeasure());
-        System.out.println("precision : "+eval.weightedPrecision());
-        System.out.println("recall : "+eval.weightedRecall());
-    }
-
-        //System.exit(-1);
-
-
-        //multiclass j48
+        //DA MIGLIORARE RENDENDO AUTOMATICA L'UNIONE DEI CSV        
+        String allCsvJoined="src/main/java/org/resources/irisSingleCl/inputDS/allClasses.csv";
+        CreateClassifierFromAllCsvJoined(allCsvJoined,folds,tree);
         
-        DataSource sourceBase = new DataSource("src/main/java/org/resources/irisSingleCl/inputDS/allClasses.csv");
-        
-        Instances sourceIs= sourceBase.getDataSet();
-        // header to fix https://stackoverflow.com/questions/3517186/using-weka-java-code-how-convert-csv-without-header-row-to-arff-format
-
-        sourceIs.renameAttribute(0,"sepal length");
-        sourceIs.renameAttribute(1,"sepal width");
-        sourceIs.renameAttribute(2,"petal length");
-        sourceIs.renameAttribute(3,"petal width");
-        sourceIs.renameAttribute(4,"class");
-
-        if (sourceIs.classIndex() == -1) sourceIs.setClassIndex(sourceIs.numAttributes() - 1);
-
-        NumericToNominal numericToNominal = new NumericToNominal();
-        String[] optionsNumeric = new String[2];
-        optionsNumeric[0] = "-R";
-        optionsNumeric[1] = "last";
-        numericToNominal.setOptions(optionsNumeric);
-        numericToNominal.setInputFormat(sourceIs);
-
-        Instances nominalALL = Filter.useFilter(sourceIs, numericToNominal);
-        if (nominalALL.classIndex() == -1) nominalALL.setClassIndex(nominalALL.numAttributes() - 1);
-
-        
-        //save arff
-        File arfFile_all = new File("/Users/thenor/Desktop/Aldo/Neodata/SaverioProjects/BinaryClassification/src/main/java/org/resources/irisSingleCl/training_all.arff");
-        if(arfFile_all.exists()) arfFile_all.delete();
-        ArffSaver rawtrainingSaverAll = new ArffSaver();
-        rawtrainingSaverAll.setInstances(nominalALL);
-        rawtrainingSaverAll.setFile(arfFile_all);
-        rawtrainingSaverAll.writeBatch();
-
-
-        //rp.setInputFormat(nominalALL);
-        //Instances testingAll = Filter.useFilter(nominalALL, rp);
-
-        Evaluation evalAll = new Evaluation(nominalALL);
-        evalAll.crossValidateModel(tree, nominalALL, folds, new Random(1));
-
-        System.out.println("ALL CLASSIFIER");
-
-        System.out.println(evalAll.toSummaryString("\nResults\n======\n", true));
-        System.out.println("F-measure : "+evalAll.weightedFMeasure());
-        System.out.println("precision : "+evalAll.weightedPrecision());
-        System.out.println("recall : "+evalAll.weightedRecall());
-
-
-        
-        //SMOTE positive vs negative, rebalance
+        /*
+        Punto 4
+            Ripetere il punto 2) ribilanciando la classe positiva usando il filtro SMOTE. 
+            Ripetere quindi i confronti con il classificatore del punto 3).
+        */
         SMOTE smote=new SMOTE();
-        for(int i=0;i<sources.size();i++){
-
-            DataSource source = new DataSource("src/main/java/org/resources/irisSingleCl/inputDS/agg_positive"+i+".arff");
-            Instances training = source.getDataSet();
-            if (training.classIndex() == -1) training.setClassIndex(training.numAttributes() - 1);
-
-            smote.setInputFormat(training);
-            Instances Trains_smote= Filter.useFilter(training, smote);
-
-            Evaluation evalAllSmote = new Evaluation(Trains_smote);
-            evalAllSmote.crossValidateModel(tree, Trains_smote, folds, new Random(1));
-
-
-            System.out.println("CLASSIFIER eval SMOTE:"+i);
-            System.out.println(evalAllSmote.toSummaryString("\nResults\n======\n", true));
-            System.out.println("F-measure : "+evalAllSmote.weightedFMeasure());
-            System.out.println("precision : "+evalAllSmote.weightedPrecision());
-            System.out.println("recall : "+evalAllSmote.weightedRecall());
-            System.out.println(evalAllSmote.toMatrixString());
-
-        }    
-
-        
-    
-
-        
+        RebalanceWithSmote(smote,sources.size(),folds,tree);
         
 
-        //https://waikato.github.io/weka-wiki/performing_attribute_selection/#meta-classifier
-
-        //attribute selecion (infogain+ ranker (valore infogain >0) e cfsSubsetEval+ best first) e il filtro SMOTE
-
-        AttributeSelection selector = new AttributeSelection();
-        InfoGainAttributeEval evaluator = new InfoGainAttributeEval();
-        Ranker ranker = new Ranker();
-
-        ranker.setThreshold(0.0);
-        selector.setEvaluator(evaluator);
-        selector.setSearch(ranker);
-
-
-
-
+        /*
+        Punto 5
+            Ripetere il punto 2 usando due metaclassificatori che inglobino ciascuno un metodo diverso di
+            attribute selecion (infogain+ ranker (valore infogain >0) e cfsSubsetEval+ best first) e il filtro
+            SMOTE come al punto 4. Per ogni classe (quindi per ogni modello, identificare quali sono le
+            caratteristiche selezionate).
+        */
+        MetaClassiffier(smote,sources.size(),folds,tree);
+        
     }
 }
